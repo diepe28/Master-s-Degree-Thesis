@@ -1,0 +1,161 @@
+%
+% File: chap06.tex
+% Description: Implementation of our solution
+%
+\let\textcircled=\pgftextcircled
+\chapter{Implementation Details}
+\label{chap:implementationDetails}
+\initial{I}n this chapter all the details of our proposed solution are presented. How everything was implemented....
+
+\section{Inter-Thread Communication}
+\label{sec:interThreadCommunication}
+The performance bottleneck of Redundant Multi-Threading techniques lies in how the frequent thread communication is accomplished. The problem is generally solved with a Single Producer Single Consumer queue, but each option in the literature has a somehow different approach. The communications patterns in RMT are an example of this
+
+\subsection{Our SPSC Queue}
+\label{subsec:SPSCQueue}
+Our Redundant Hyper-Threading technique also uses a SPCP queue and it looks like this:
+
+\begin{lstlisting}[language = c]
+#define RHT_QUEUE_SIZE 1024
+#define ALREADY_CONSUMED -2
+
+typedef struct { ;
+    volatile int deqPtr;
+    double padding0[CACHE_LINE_SIZE - sizeof(int)];
+    volatile int enqPtr;
+    double padding1[CACHE_LINE_SIZE - sizeof(int)];
+    volatile double *content;
+    double padding2[CACHE_LINE_SIZE - sizeof(double *)];
+    volatile double volatileValue;
+    volatile int checkState;
+    double padding3[CACHE_LINE_SIZE - sizeof(int) - sizeof(double)];
+    // Producer Local, does not make any diff compared to having them outside of the queue
+    int nextEnq, localDeq, newLimit, diff;
+    double padding4[CACHE_LINE_SIZE - 4 * sizeof(int)];
+    // Consumer Local
+    double otherValue, thisValue;
+}RHT_QUEUE;
+\end{lstlisting}
+
+There are a couple of things important to notice. It is an circular queue, which means that we use the value \textit{RHT\_QUEUE\_SIZE} for advancing the pointers. Basically, we have 5 fields and between each one of them there is a padding which tries to solve false sharing issues by occupying a full cache line (actually 2, anticipating the cache prefetcher): 
+
+\begin{enumerate}
+\item \textbf{depPtr}, the dequeue pointer is used to track where the consumer or trailing thread is. Every time a \textit{consume()} call happens this pointers is moved to the next position. 
+\item \textbf{enqPtr}, the enqueue pointers is used to track where the producer or leading thread is. For every single \textit{produce()} operation the pointer is moved to the next position. 
+\item \textbf{content}, here is the content of the queue, it is initialized based of \textit{RHT\_QUEUE\_SIZE}. Since we use a modulo operation (\%) on the size of the queue, for every produce and consume operation, the fact that the constant of the queue size is a power of 2 makes it faster since the compiler is able to accomplish such instruction very efficiently \footnote{https://stackoverflow.com/questions/6670715/mod-of-power-2-on-bitwise-operators}.
+\item \textbf{volatileValue}, this variable is used to exchange values between threads that parameters of a volatile memory access. Every time something needs to be printed, for example, this variable is used. If a memory-mapped call has several parameters we do not need to use this value for all of them, because that will cause multiple spinning loops (busy waiting); just with the las parameter is enough. 
+\item \textbf{checkstate}, this is the spinning variable used to synchronize the volatile values. 
+\end{enumerate}
+
+Every field is the \textit{struct} is marked volatile so the compiler cannot optimize their uses and cause incorrect behavior. The constant \textit{ALREADY\_CONSUMED} will be further explained in Section \ref{subsec:syncMechanism}
+
+\subsection{Synchronization Mechanisms}
+\label{subsec:syncMechanism}
+
+The way \textit{produce} and \textit{consume} operations are implemented really impact performance. For that we have tried different approaches, trying to figure out the best. Involving the kernel (mutex, semaphores) takes a lot of time and therefore different spinning techniques are tested:
+
+\begin{itemize}
+\item \textbf{Using Pointers}, the basic option of a lock-free Single Producer Single Consumer Queue depends on the enqueue and dequeue pointers (\textit{enqPtr,deqPtr}) for every synchronization call. Basically both pointers move from left to right as items are placed in the queue (produced) and removed (consumed).  More items can be added to the queue as long as $\,(enqPtr+1)\,\%\, RHT\_QUEUE\_SIZE \neq deqPtr\,$ (i.e. the queue is not full) and taken off the queue as long as $\,deqPtr \neq enqPtr\,$ (i.e. the queue is not empty). The problem with this approach is that both pointers are used in both synchronization operations and that implies that the values are being invalidated frequently, making the cache coherency protocol come into action a lot of times.
+
+\item \textbf{Already Consumed}, here a value that will never be produced by the original algorithm is used (usually a precise negative number is enough) to avoid having to use both pointers in the synchronization. Every time the trailing thread consumes a new value, it replaces that entry of the queue with an \textit{ALREADY\_CONSUMED}, which allows the leading thread to know at what index the consumer is. The scheme also allow us to make another improvement in our technique. Because we know that the consumer thread has to performed more work (is the one that does the checking), we know that it advances slower than the producer. For that, we assume that most of the times he is to read a value it will most likely be already produced and therefore should not ask if that entry is ready but just read it. So, he reads it compares it against its own value and moves on, if the comparison fails he performs and extra step making sure that what he read was not an incorrect value because he got ahead of the producer; and only in such situation he spins waiting for the leading thread.
+
+\item \textbf{New Limit}, the next improvement was to try to allow the producer add data without having to ask every time if he is not overwriting not read data. The idea lies in the fact of calculating a new limit every time, the point up to which the producer now he can just produce data. At first the new limit is the total size of the queue, after that he can calculate the new one based on where the dequeue pointer is and so on and so on. This approach requires a bit more of original code manipulation, it is not trivial to apply to every single algorithm. Also, there might be cases where the pointers are so close to each other that the whole process of calculating the new limit might be just for a couple of iterations and therefore not beneficial. For that, we try to keep a minimum distance between thread and we do this by spinning. The consumer in this case also uses an \textit{Already Consumed} approach. 
+\end{itemize}
+
+Each of the approaches is incrementally better than the previous one.  
+
+
+\subsection{State of the art solutions}
+\label{subsec:stateArtQueues}
+%This probably should not be in this chapter, but I put it here so we have all the new things in one place. 
+
+FastForward \cite{giacomoni2008fastforward} presents a SPSC queue that uses a known value to indicate full and empty queue conditions, for pointers they use NULL. This approach is similar to our ALREADY\_CONSUMED technique. In general, this allows the enqueue and dequeue operations to not share the enq/deq pointers and therefore reducing the cache coherency interventions. 
+
+Lee \textit{et at} at \cite{lee2010lock} present a SPSC queue which focuses of cache protection. Correct placement of the queue information at cache lines level at accessing the variables in a way to minimize cache misses. 
+
+\cite{wang2013bQueue} is another SPSC queue where the authors have a batching scheme (which is pretty much like a multi-section queue) in which both threads access the queue simultaneously provided they work on different parts of the queue. There is a chance that a deadlock happens with this configuration so the authors explore the best way to avoid such scenario with different options. It would be interesting to look at this paper again if we decide to try a multi-section queue aware of volatile stores. When the producer encounters a volatile store he could write an ALREADY\_CONSUMED value and set a variable of how many spaces should he had to fill with garbage in order to get allow the consumer to start reading that section. When the consumer encounters an ALREADY\_CONSUMED he could check if this variable has a value different than -1 and skip the remaining fields. Something like that. 
+
+Moody Camel https://github.com/cameron314/readerwriterqueue, presents a queue which is really fast. It is not faster than our best approach for our purposes right now, but we might want to look at it with more attention, because this queue has not the assumptions we make about our specific problem but it is almost as fast as our best approach. 
+
+\subsection{Current results}
+\label{subsec:currentResults}
+
+This are the current results for HPCCG mini app, from the Mantevo project. Every option available was run separate which explain why each one of them has its own baseline. The values are in seconds. Core 1, 3 means Hyper-Threading, and 1,2 mean threads of different cores. On every case the hyper-threaded version is better than the different cores version, which definitely makes our Hypothesis true.
+
+-------------------------- FINAL SUMMARY --------------------------\\
+Mean baseline 1.259380 , SD baseline 0.096154 \\
+Mean RHT-USING POINTERS cores 1, 3: 9.622204 , SD RHT 0.863605\\
+\textbf{7.640430 x slower} \\
+Mean RHT-USING POINTERS cores 1, 2: 28.642818 , SD RHT 0.027983 \\
+\textbf{22.743590 x slower} \\
+
+Mean baseline 1.205901 , SD baseline 0.063552 \\
+Mean RHT-ALREADY CONSUMED cores 1, 3: 4.313167 , SD RHT 0.135177\\
+\textbf{3.576718 x slower} \\
+Mean RHT-ALREADY CONSUMED  cores 1, 2: 34.471953 , SD RHT 0.364967\\
+\textbf{28.586064 x slower} \\\\
+
+Mean baseline 1.194051 , SD baseline 0.009898 \\
+Mean RHT-NEW LIMIT - ALREADY CONSUMED cores 1, 3: 3.854467 , SD RHT 0.151713\\
+\textbf{3.228060 x slower} \\
+Mean RHT-NEW LIMIT - ALREADY CONSUMED cores 1, 2: 8.373289 , SD RHT 0.020947\\
+\textbf{7.012507 x slower} \\
+
+Mean baseline 1.172779 , SD baseline 0.005942 \\
+Mean RHT-MOODY CAMEL cores 1, 3: 4.047926 , SD: 0.015829\\
+\textbf{3.451567 x slower} \\
+Mean RHT-MOODY CAMEL cores 1, 2: 16.762148 , SD: 1.685639\\
+\textbf{14.292672 x slower} \\
+
+The fastest approach is New Limit with Already Consumed scheme.
+
+There is another technique that is almost complete, which is the same as the New Limit with Already Consumed approach, but the one that writes the AlreadyConsumed value is the producer. This was tried because of some performance profiling the producer was spinning much more times than the consumer; which means that the consumer was the slow thread. For that, we moved the cost of writing the AlreadyConsumed value everytime to the producer, but it was no faster (something like 3.381553 x slower compared to its baseline). Which is not too far from the better, so we might want to continue down this path. The main idea is now that the produce every time that has to produce something, before writing the new value he writes at the next index AlreadyConsumed, establishing the limit for the consumer. 
+\subsection{Things to do}
+\label{subsec:thingsToDo}
+
+\begin{itemize}
+\item Try the technique with different application. 
+\item Add to the thesis document info about cache speed (like in the presentation).
+\item Check if COMET code is publicly available and if it includes their DAFT version.
+\item Try to determine with more certainty where the performance bottleneck lies (use perf).
+\item Try different other ideas to improve the technique, next subsection.
+\end{itemize}
+
+\subsubsection{Things to try to improve RHT}
+\label{subsec:thingToTry}
+
+\begin{itemize}
+	\item In order to remove the AlreadyConsumed value (which might be difficult to establish for certain application) we might want to have a way to tell for each index which was the last operation on it, whether is was read or written. In order to apply our optimizations, thought there might be a problem because of a race condition on this variable (we need more thought on this). Also, we might argue that by choosing a very unlikely value the probability of a Soft Error not being detected is really really low. 
+    \item Instead of ASM(pause) in the spinning scenarios we might want to try a local loop of work. In order to alleviate many cache invalidation scenarios because of constantly asking for a frequently updated shared variable. Also, we can customize the amount of work to our favor.
+    \item Batching, try to update the shared variable deqPtr locally in the consumer and when it reaches a certain threshold we update the shared variable. This is as well to try to decrease the spinning time. 
+    \item This formula to calculate the distance of pointers works as long as the pointers are different. This would be faster rather than our implicit branch ((RHT\_QUEUE\_SIZE-globalQueue.enqPtr + globalQueue.localDeq) \% RHT\_QUEUE\_SIZE)-1. We can make sure that the producer never catches up to the consumer (with the -1) but in our current scheme the consumer can catch up to the producer. 
+	\item Another thing that we may try is inspired on wait-free programming from moodyCamel queue: the code is set up such
+that each thread can always advance regardless of what the other is doing, when the queue is full the producer allocates more memory. 
+ 	\item Also, we may try to implement the calculation of the NewLimit without spinning on the shared variable deqPtr to avoid cache trashing. The idea is to calculate the next index of the queue that should be != than ALREADY\_CONSUMED (bases on our minimum distance between pointers) and spin on that field rather than the shared variable that is being updated on every consume operation.  
+\end{itemize}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

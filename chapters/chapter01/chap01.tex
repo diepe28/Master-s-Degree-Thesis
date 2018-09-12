@@ -1,0 +1,34 @@
+%
+% File: chap01.tex
+% Description: Introduction chapter 
+%
+\let\textcircled=\pgftextcircled
+\chapter{Introduction}
+\label{chap:intro}
+
+\initial{P}rocessor's manufactures have been able to keep making faster and less energy consuming chips for a long time. This has been possible because of a several innovative improvements in several fields, like architecture design, better fabrication materials, among others; one example of this are the smaller and faster transistors with tighter noise margins and low threshold voltages currently present in processors. Another example are multi-core chips, a current trend in technology, in which several computing units are placed in the same chip sharing different kinds of resources. This allows more than one instruction to be processed concurrently and therefore, if the problem allows it, reduces significantly the overall execution time of a calculation. Even though the combination of such breakthroughs in processors manufacturing have created really fast and efficient chips, it has also made them very complex systems which are more susceptible to \textit{transient errors} than previous generations \cite{reis2005swift}.
+
+Transient errors (also known as soft errors) are different from design or manufacturing errors in one aspect in particular: they are caused by external events and hence they are unpredictable. If, for example, a poor design choice causes overheating on a specific core after an amount of time, it can be objectively quantified and determined. Soft errors are caused by foreign factors such as high-energy particles striking the chip, which are more difficult to measure since they cannot always be anticipated. These events do not provoke permanent physical damage on the processor, but they can cause a \textit{bit flip} (a change of state in a transistor) that can alter data silently (without the hardware noticing) and potentially corrupt the program state. 
+
+Main memory already has protection mechanisms like error correction codes (ECC) against bit flips, ensuring that every read value is the same as the one that was written; but sadly processor's registers are still vulnerable. Supercomputers nowadays are very expensive systems used to calculate complex data. Therefore, the time they spend to compute the result is commonly long. For example running a complex weather simulation in order to produce an accurate forecast; or the right type of chemotherapy is better to use on a specific patient. If a silent data corruption affects the outcome in such scenarios, it can cause one out of two situations. Either the result is so compromised that is easy to verify that is wrong or it could be mistakenly accepted. But, either way the time and physical resources the supercomputer spent processing would have been wasted. Plus, in the worst case scenario where the soft error goes undetected and the result is interpreted as correct, a wrong valuable conclusion can be drawn form it.
+
+To protect against these kind of errors, replication is typically used. The result of a calculation is performed not once, but multiple times and the results are compared. Replication comes in two flavors: hardware or software. There are many types of redundant hardware specialized to be reliable against this sort of problem, but are more costly than regular hardware. Software replication on the other hand, allows common commercial processors to implement this mechanism as well; making it the common solution for supercomputers and for this thesis as well \cite{zhang2012daft}. 
+
+There are two main challenges when dealing with soft errors. The first one is being able to detect that an error happened. The second is correcting the error and ensuring that the final result of the calculation is correct. In common solutions, redundancy is used at some level. Instructions are replicated and frequent checks are placed to detect errors. If the check fails then the application is usually restored to a previous checkpoint. But, as expected from replicating the application, this technique incurs a lot of performance overhead. 
+
+%To reduce the overall overhead of dealing with soft errors, some features provided by recent processors, such as hardware-managed transactions and Hyper-Threading could be great opportunities to implement efficient error detection and recovery. The pioneer work presented in \cite{kuvaiskii2016haft} is a first step towards leveraging Hardware Transactional Memory (HTM) for recovering application state. Hyper-Threading can be utilized in the detection phase, instead of replicating the instructions in one thread they can be distributed in two hyper-threads that share the L1 level cache memory; allowing fast data interchange between them. The goal of this thesis is to combine the use of HTM with Hyper-Threading in order to accomplish a cost-effective solution to deal with soft errors. 
+
+Software replication can also be further classified into two categories, Instruction Level Redundancy (ILR) or thread-local replication and Redundant Multithreading (RMT). Basically the difference between them is whether the replication happens in the same thread or is distributed into two threads, respectively. Redundant Multithreading approaches \cite{mitropoulou2016comet}  \cite{wang2007compiler} \cite{zhang2012daft} try to minimize the overhead that ILR produces, by separating the work into two threads: one that only calculates values from the original code and another one that also calculates values and checks if both results are the same.
+
+Typically, in RMT schemes the inter-thread communication is the performance bottleneck. For that, we believe that using Intel Hyper-Threads instead of threads in different cores can help overcome this problem. With Intel Hyper-Threading, two logical processors share the cache L1 of a physical processor, among other execution resources \cite{Hyper-Threading}. The fact that this level of cache is shared among both hyper-threads, makes the data exchange significantly faster than with threads on several cores.
+
+This thesis focus on creating a Redundant Multithreading approach that uses hyper-threads instead of threads on different cores. 
+
+%The work makes the following contributions:
+
+%\begin{itemize}
+%	\item Developing a solution of Redundant Multi-threading that takes advantage of hyper-threading (called Redundant Hyper-Threading).
+%	\item A performance comparison of the solution with thread on different cores vs hyper-threads.  
+    %\item A study of how Hardware Transactional Memory combines with Multi-threading regarding soft error management. 
+%\end{itemize}
+

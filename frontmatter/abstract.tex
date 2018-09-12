@@ -1,0 +1,19 @@
+%
+% File: abstract.tex
+% Author: V?ctor Bre?a-Medina
+% Description: Contains the text for thesis abstract
+%
+% UoB guidelines:
+%
+% Each copy must include an abstract or summary of the dissertation in not
+% more than 300 words, on one side of A4, which should be single-spaced in a
+% font size in the range 10 to 12. If the dissertation is in a language other
+% than English, an abstract in that language and an abstract in English must
+% be included.
+
+\chapter*{Abstract}
+\begin{SingleSpace}
+%OLD - \initial{S}ince current multi-core processors are more complex systems on a chip than previous generations, some transient errors may happen, go undetected by the hardware and can potentially corrupt the result of an expensive calculation. Because of that, techniques such as replication or checkpointing are utilized to detect and correct these soft errors; however these mechanisms are highly expensive, adding a lot of resource overhead. Hardware Transactional Memory exposes a very convenient and efficient way to revert the state of a core's cache, which can be utilized as a recovery technique. We created an experimental prototype that uses such feature to recover the previous state of the calculation when a soft error has been found. The combination of HTM, Hyper-Threading and Memory Protection Extensions, may further improve the performance, applicability and confidence of our technique.
+\initial{As HPC systems move towards extreme scale, soft errors leading to silent data corruptions become a major concern. In this paper, we propose a set of three optimizations to the classical Redundant Multithreading (RMT) approach to efficiently detect soft errors. First, we leverage the use of Simultaneous Multithreading (SMT) to collocate sibling replicated threads on the same physical core to efficiently exchange data to detect errors. Some HPC applications can not fully exploit SMT for performance improvement and instead we propose to use these additional resources for fault tolerance. Second, we present variable aggregation to group several values together and use this gathered value for fast soft error detection. Third, we introduce selective checking to decrease the amount of checked values to a minimum. The last two techniques reduce the overall performance overhead by relaxing the soft error detection scope. Our experimental evaluation, executed on recent multicore processors with representative HPC benchmarks, shows that the use of SMT for fault tolerance considerably enhances RMT performance. Furthermore, it shows that, at constant computing power budget, with optimizations applied the overhead of the technique can be significantly lower than the classical replicated execution. }
+\end{SingleSpace}
+\clearpage
